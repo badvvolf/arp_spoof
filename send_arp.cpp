@@ -147,6 +147,7 @@ bool SendARP::InfectARPTable()
     inet_ntop(AF_INET, (const void *)&targetIP, print_targetIP, sizeof(print_targetIP));
 
 
+    printf("infect ARP table : sender [%s] target [%s]\n", print_senderIP, print_targetIP);
     if(isBuilt)
     {
         pcapManager->Send((uint8_t *)&buf, (int32_t)LEN::PACKETLEN);
@@ -177,9 +178,6 @@ bool SendARP::InfectARPTable()
 
     MakeARP(ARPOP_REPLY, &buf, senderMAC, myMAC, senderIP, targetIP);
     
-
-    printf("infect ARP table : sender [%s] target [%s]\n", print_senderIP, print_targetIP);
-    
     pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
     
     //___ infect ARP Table __
@@ -195,7 +193,6 @@ void SendARP::SetSenderMAC(uint8_t * sMAC)
 {
     memcpy(senderMAC, sMAC, ETH_ALEN);
     gotSenderMAC = true;
-     printf("senderMAC----\n");
 }
 
 
@@ -203,7 +200,6 @@ void SendARP::SetTargetMAC(uint8_t * tMAC)
 {
     memcpy(targetMAC, tMAC, ETH_ALEN);
     gotTargetMAC = true;
-    printf("targetMAC----\n");
 
 }
 
@@ -252,8 +248,6 @@ bool SendARP::ARPRequest(uint32_t requestWho)
 {
     if(requestWho == 0)
     {
-        printf("subin---\n");
-            //구독 신청
        //구독 신청
         Subscriber * sub = new Subscriber(NULL, (uint8_t * )myMAC, 
                                         0, 0, 
@@ -275,7 +269,7 @@ bool SendARP::ARPRequest(uint32_t requestWho)
         ARPPACKET * arpPacket = (ARPPACKET * )packet;
 
         while (!gotSenderMAC) 
-        {printf("-----\n");
+        {
             this_thread::sleep_for(5s);
             pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
         }

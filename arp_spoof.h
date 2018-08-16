@@ -13,6 +13,11 @@ public:
     uint32_t requestSubId1;
     uint32_t requestSubId2;
 
+
+    thread * maintain;
+
+
+
     Attack(uint8_t * interface, uint32_t senderIP, uint32_t targetIP, PcapManager *pcapManager);
 
 };
@@ -26,9 +31,10 @@ private:
     list <Attack *> attackList;
     list <uint32_t> subID;
 
-    uint32_t attackNum;
     PcapManager * pcapManager;
     uint8_t * interface;
+
+
 
 public:
 
@@ -36,7 +42,7 @@ public:
     void RelayIPPacket(const uint8_t * buf, uint32_t len, uint32_t subID);
     void AttackStart();
     void ReactRequest(uint32_t subID);
-    ARPSpoof(uint8_t * interface, uint32_t attackNum);
+    ARPSpoof(uint8_t * interface);
     void MaintainInfection(SendARP * sendARP);
 
 };

