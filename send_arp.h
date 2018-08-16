@@ -1,5 +1,7 @@
 
 #pragma once
+#include "pcap_manager.h"
+
 #include <pcap.h>
 #include <stdio.h>
 #include <netinet/ether.h>
@@ -13,31 +15,20 @@
 #include <unistd.h>
 #include <stdlib.h> 
 #include <sys/time.h>
-#include "pcap_manager.h"
+#include "typedef.h"
+#include <mutex>
 
 
 //전방 선언
 class PcapManager;
 
+extern mutex subMutex;
+extern mutex sendMutex;
+
 
 //--- Struct definition ---
 
 #pragma pack(push, 1) 
-typedef struct ARPHdr
-{
-    uint16_t hardType;		
-    uint16_t protoType;	
-    uint8_t hardLen;		
-    uint8_t protoLen;		
-    uint16_t opcode;		
-
-    uint8_t srcMAC[ETH_ALEN];	
-    uint32_t srcIP;		
-    uint8_t dstMAC[ETH_ALEN];	
-    uint32_t dstIP;
-
-}ARPHDR;
-
 
 typedef struct ARPPacket{
 
@@ -52,12 +43,6 @@ typedef struct ARPPacket{
 
 //___ Struct definition ___
 
-enum class LEN
-{
-    ETHERLEN = 14,
-    IPADDRLEN = 4,
-    PACKETLEN = 0x2a
-};
 
 class SendARP
 {
@@ -66,34 +51,40 @@ private:
 
     PcapManager * pcapManager;
 
-    uint8_t myMAC[ETH_ALEN];
-    uint8_t senderMAC[ETH_ALEN];
-    uint32_t myIP;
-    uint32_t senderIP;
-    uint32_t targetIP;
-    uint8_t * interface;
-
+  
     uint8_t packet[100];
 
     ARPPACKET buf;
+
+    bool gotTargetMAC = false;
+
 
     bool gotSenderMAC = false;
     bool isBuilt = false;
 
     void SetMyAddr(uint8_t * );
     bool MakeARP(uint8_t , ARPPACKET * , uint8_t * , uint8_t * , uint32_t , uint32_t );
-    void MakeEtherHeader(struct ether_header * , uint8_t * , uint8_t * );
-
-    
-    bool GetSenderMAC();
+    void MakeEtherHeader(struct ether_header * , uint8_t * , uint8_t * ); 
+    bool RequestSenderMAC();
  
-  
+    bool ARPRequest(uint32_t requestWho);
 
 public:
-   
-    bool MaintainInfection();
+  uint8_t myMAC[ETH_ALEN];
+       uint8_t senderMAC[ETH_ALEN];
+    uint32_t myIP;
+    uint32_t senderIP;
+    uint32_t targetIP;
+    uint8_t * interface;
+
+    uint8_t targetMAC[ETH_ALEN];
+    
+
     SendARP(uint8_t * , uint32_t, uint32_t, PcapManager * );
    // ~SendARP();
     void SetSenderMAC(uint8_t *);
     bool InfectARPTable();
+    void SetTargetMAC(uint8_t * tMAC);
+
+
 };

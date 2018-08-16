@@ -1,7 +1,12 @@
 
 
+#pragma once
 #include "pcap_manager.h"
 
+mutex subMutex;
+mutex sendMutex;
+
+uint32_t Subscriber::subIDCount = 0;
 
 Subscriber::Subscriber()
 {
@@ -9,9 +14,11 @@ Subscriber::Subscriber()
 
 }
 
-Subscriber::Subscriber(/*uint32_t cf, */uint8_t * ethSrc, uint8_t * ethDst, uint32_t ipSrc, 
-                        uint32_t ipDst, uint8_t * arpSender, uint8_t * arpTarget,
-                        uint32_t subtype, void* object, uint32_t pro)
+Subscriber::Subscriber(uint8_t * ethSrc, uint8_t * ethDst, 
+                        uint32_t ipSrc, uint32_t ipDst,
+                        uint8_t * arpSender, uint8_t * arpTarget,
+                        uint32_t arpSenderIP, uint32_t arp_targetIP,
+                        uint32_t subtype, void* obj, uint32_t pro, void * cb)
 {
     type = subtype;
 
@@ -19,24 +26,40 @@ Subscriber::Subscriber(/*uint32_t cf, */uint8_t * ethSrc, uint8_t * ethDst, uint
     {
     case (uint32_t)SUBTYPE::GETSENDERMAC:
         
+        memcpy(eth_dst, ethDst, ETH_ALEN);
+        arp_senderIP = arpSenderIP;
+        break;
+    case (uint32_t)SUBTYPE::RELAYIP:
+
+        memcpy(eth_dst, ethDst, ETH_ALEN);
+        memcpy(eth_src, ethSrc, ETH_ALEN);
+     //   ip_src = ipSrc;
+        ip_dst = ipDst;
         
-        memcpy(eth_dst, ethDst, 6);
-        arp_senderIP = ipSrc;
-
-
+        break;
     }
     
-    subObj = object;
+    subObj = obj;
     proto = pro;
+    callback = cb;
 
-    printf("--------%x %x\n", eth_dst[1], eth_dst[2]);
+    id = subIDCount;
+    subIDCount ++;
+
+}
+
+
+
+uint32_t Subscriber::GetSubID()
+{
+    return id;
 
 }
 
 
 PcapManager::PcapManager(uint8_t * interface)
 {
-    handle = pcap_open_live((const char *)interface, BUFSIZ, 1, 500, (char *)errbuf);
+    handle = pcap_open_live((const char *)interface, BUFSIZ, 1, 0, (char *)errbuf);
     if (handle == NULL) 
     {
         fprintf(stderr, "couldn't open device %s: %s\n", interface, errbuf);
@@ -49,34 +72,75 @@ PcapManager::PcapManager(uint8_t * interface)
 
 }
 
+
+
+void PcapManager::ReleaseSubcriber(Subscriber * sub)
+{
+    list<Subscriber *>::iterator itor;
+
+    itor=find(subscriber.begin(), subscriber.end(), sub);
+    subscriber.erase(itor);
+    printf("delete\n");
+}
+
+
+
 void PcapManager::Send(uint8_t * buf, int32_t len)
 {
+    unique_lock<mutex> sendMutexLock(sendMutex);
     pcap_sendpacket(handle, (const u_char *)buf, len);
-
+    sendMutexLock.unlock();
 }
 
 
 void PcapManager::StartReceiver()
 {
-
     struct pcap_pkthdr * header;
     const uint8_t * packet;
     Subscriber * sub;
-    
+
     while(true)
     {
         int res = pcap_next_ex(handle, &header, &packet);
         if (res == 0) continue;
         if (res == -1 || res == -2) break;
 
+        unique_lock<mutex> subMutexLock(subMutex);
+
         //등록된 아이템일시 알람
         if( (sub = FindSubscriber(packet)) != NULL)
         {
-            NoticeSubscriber(sub, packet);
+            NoticeSubscriber(sub, packet, header->len);
         }
+        
     }
 }
 
+void PcapManager::NoticeSubscriber(Subscriber * sub, const uint8_t * packet, uint32_t len)
+{
+    //구독자한테 알람
+    switch(sub->type)
+    {
+    case (uint32_t)SUBTYPE::GETSENDERMAC:
+        {
+            ARPHDR * arp =  (ARPHDR *)((uint8_t *)packet + (uint8_t)LEN::ETHERLEN);
+
+            FPSETSENDERMAC fpSetSenderMAC = (FPSETSENDERMAC)sub->callback;
+            fpSetSenderMAC((SendARP *)(sub->subObj), arp->srcMAC);
+
+            break;
+        }
+    case (uint32_t)SUBTYPE::RELAYIP:
+        {
+
+            FPRELAYIPPACKET fpRelayIpPacket = (FPRELAYIPPACKET)sub->callback;
+            fpRelayIpPacket((ARPSpoof *)(sub->subObj), packet, len, sub->id);
+            break;
+        }
+
+
+    }
+}
 
 
 
@@ -104,15 +168,22 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
         break;
 
     case ETHERTYPE_IP:
-
+      {
         packetInfo.proto = ETHERTYPE_IP;
 
         ipInfo = (ip *)((u_int8_t *)eth + (u_int8_t)LEN::ETHERLEN);
         packetInfo.ip_src = ipInfo->ip_src.s_addr;
         packetInfo.ip_dst = ipInfo->ip_dst.s_addr;
-    
-        break;
+      
+      
+        char print_senderIP[20];
+        char print_targetIP[20];
+        inet_ntop(AF_INET, (const void *)&packetInfo.ip_src, print_senderIP, sizeof(print_senderIP));
+        inet_ntop(AF_INET, (const void *)&packetInfo.ip_dst, print_targetIP, sizeof(print_targetIP));
+        printf("ip --- src : %s dst : %s\n", print_senderIP, print_targetIP);
 
+        break;
+      }
     default:
         return NULL;  
 
@@ -121,28 +192,51 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
     memcpy(packetInfo.eth_src , eth->ether_shost, ETH_ALEN);
     memcpy(packetInfo.eth_dst, eth->ether_dhost, ETH_ALEN);
 
+    list<Subscriber *>::iterator itor;
 
-
-
-    for (int i =0; i<subscriber.size(); i++)
+    for (itor=subscriber.begin(); itor != subscriber.end(); itor++ )
     {
         
-        if(subscriber[i]->proto != packetInfo.proto)
+        if((*itor)->proto != packetInfo.proto)
             continue;
         
 
-        switch(subscriber[i]->type)
+        switch((*itor)->type)
         {
         case (uint32_t)SUBTYPE::GETSENDERMAC :
                 
-    
-            if(memcmp(subscriber[i]->eth_dst, packetInfo.eth_dst, ETH_ALEN))
+            if(memcmp((*itor)->eth_dst, packetInfo.eth_dst, ETH_ALEN))
                 continue;
             
-            if(subscriber[i]->arp_senderIP != packetInfo.arp_senderIP)
+            if((*itor)->arp_senderIP != packetInfo.arp_senderIP)
                 continue;
-            return subscriber[i];            
             
+            return (*itor);    
+
+        case (uint32_t)SUBTYPE::RELAYIP :
+            {
+
+                
+                printf("relayip in...\n");
+
+                if(memcmp((*itor)->eth_dst, packetInfo.eth_dst, ETH_ALEN))
+                {
+                    printf("1\n");
+                        continue;
+                }
+                if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
+                  {printf("2\n");
+                       continue;              
+                  }
+ 
+                //내 IP가 목적지인 경우 넘기지 않음
+                if((*itor)->ip_dst == packetInfo.ip_dst)
+                {   
+                    printf("same ip %x %x\n",(*itor)->ip_dst,  packetInfo.ip_dst);
+                     continue;}
+                
+                return (*itor); 
+            }
         }
 
         
@@ -151,25 +245,6 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
 
 
    return NULL;
-}
-
-
-void PcapManager::NoticeSubscriber(Subscriber * sub, const uint8_t * packet)
-{
-    //구독자한테 알람
-    switch(sub->type)
-    {
-    case (uint32_t)SUBTYPE::GETSENDERMAC:
-
-        ARPHDR * arp =  (ARPHDR *)((u_int8_t *)packet + (u_int8_t)LEN::ETHERLEN);
-        ((SendARP *)(sub->subObj))->SetSenderMAC((uint8_t * )arp->srcMAC);
-        break;
-
-
-
-    }
-
-
 }
 
 
@@ -182,12 +257,19 @@ void PcapManager::AddSubscriber(Subscriber * sub)
 
 PcapManager::~PcapManager()
 {
-        
+    list<Subscriber *>::iterator itor;
+
+    for (itor=subscriber.begin(); itor != subscriber.end(); itor++)
+    {
+
+        delete(*itor);
+    }
+    /*
     for (int i =0; i<subscriber.size(); i++)
     {
         delete(subscriber[i]);
     }
-
+*/
     subscriber.clear();
 
 }

