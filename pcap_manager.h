@@ -23,14 +23,16 @@ class ARPSpoof;
 enum class SUBTYPE
 {
     GETSENDERMAC =0,
-    RELAYIP = 1
+    RELAYIP = 1,
+    REACTSENDERREQUEST =2,
+    REACTTARGETREQUEST = 3
 
 };
 
 
 typedef void (*FPSETSENDERMAC)(void *, uint8_t *);
-typedef void (*FPRELAYIPPACKET)(void *, const uint8_t * buf, uint32_t len, uint8_t subID);
-
+typedef void (*FPRELAYIPPACKET)(void *, const uint8_t * buf, uint32_t len, uint32_t subID);
+typedef void (*FPREACTREQUEST)(void *, uint32_t);
 
 class Subscriber
 {
@@ -53,7 +55,7 @@ public:
     uint8_t arp_sender[6];
     uint8_t arp_target[6];
     uint32_t arp_senderIP;
-    uint32_t arp_targerIP;
+    uint32_t arp_targetIP;
     
     
    Subscriber(uint8_t * ethSrc, uint8_t * ethDst, 

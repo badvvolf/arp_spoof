@@ -275,7 +275,7 @@ bool SendARP::ARPRequest(uint32_t requestWho)
         ARPPACKET * arpPacket = (ARPPACKET * )packet;
 
         while (!gotSenderMAC) 
-        {
+        {printf("-----\n");
             this_thread::sleep_for(5s);
             pcapManager->Send((uint8_t *)&buf, (int)LEN::PACKETLEN);
         }

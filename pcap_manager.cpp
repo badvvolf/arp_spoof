@@ -17,7 +17,7 @@ Subscriber::Subscriber()
 Subscriber::Subscriber(uint8_t * ethSrc, uint8_t * ethDst, 
                         uint32_t ipSrc, uint32_t ipDst,
                         uint8_t * arpSender, uint8_t * arpTarget,
-                        uint32_t arpSenderIP, uint32_t arp_targetIP,
+                        uint32_t arpSenderIP, uint32_t arpTargetIP,
                         uint32_t subtype, void* obj, uint32_t pro, void * cb)
 {
     type = subtype;
@@ -37,6 +37,23 @@ Subscriber::Subscriber(uint8_t * ethSrc, uint8_t * ethDst,
         ip_dst = ipDst;
         
         break;
+
+    case (uint32_t)SUBTYPE::REACTSENDERREQUEST:
+
+        memcpy(eth_src, ethSrc, ETH_ALEN);       
+        memcpy(arp_sender, arpSender, ETH_ALEN);
+        arp_senderIP = arpSenderIP;
+        arp_targetIP = arpTargetIP;
+        break;
+
+    
+    case (uint32_t)SUBTYPE::REACTTARGETREQUEST:
+
+        memcpy(eth_src, ethSrc, ETH_ALEN);       
+        memcpy(arp_sender, arpSender, ETH_ALEN);
+        arp_senderIP = arpSenderIP;
+        break;
+        
     }
     
     subObj = obj;
@@ -137,6 +154,23 @@ void PcapManager::NoticeSubscriber(Subscriber * sub, const uint8_t * packet, uin
             fpRelayIpPacket((ARPSpoof *)(sub->subObj), packet, len, sub->id);
             break;
         }
+    case (uint32_t)SUBTYPE::REACTSENDERREQUEST:
+        {
+
+            FPREACTREQUEST fpReactRequest = (FPREACTREQUEST)sub->callback;
+            fpReactRequest((ARPSpoof *)(sub->subObj), sub->id);
+            break;
+
+            
+        }
+    case (uint32_t)SUBTYPE::REACTTARGETREQUEST:
+        {
+
+            FPREACTREQUEST fpReactRequest = (FPREACTREQUEST)sub->callback;
+            fpReactRequest((ARPSpoof *)(sub->subObj), sub->id);
+            break;
+
+        }
 
 
     }
@@ -163,7 +197,7 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
         memcpy(packetInfo.arp_sender, arp->srcMAC, ETH_ALEN);
         memcpy(packetInfo.arp_target, arp->dstMAC, ETH_ALEN);
         packetInfo.arp_senderIP = arp->srcIP;
-        packetInfo.arp_targerIP = arp->dstIP;
+        packetInfo.arp_targetIP = arp->dstIP;
 
         break;
 
@@ -180,7 +214,7 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
         char print_targetIP[20];
         inet_ntop(AF_INET, (const void *)&packetInfo.ip_src, print_senderIP, sizeof(print_senderIP));
         inet_ntop(AF_INET, (const void *)&packetInfo.ip_dst, print_targetIP, sizeof(print_targetIP));
-        printf("ip --- src : %s dst : %s\n", print_senderIP, print_targetIP);
+        //printf("ip --- src : %s dst : %s\n", print_senderIP, print_targetIP);
 
         break;
       }
@@ -214,29 +248,64 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
             return (*itor);    
 
         case (uint32_t)SUBTYPE::RELAYIP :
-            {
+            
+            if(memcmp((*itor)->eth_dst, packetInfo.eth_dst, ETH_ALEN))
+                    continue;
+            
+            if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
+                    continue;              
 
-                
-                printf("relayip in...\n");
+            //내 IP가 목적지인 경우 넘기지 않음
+            if((*itor)->ip_dst == packetInfo.ip_dst)
+                    continue;
+            
+            return (*itor); 
+            
 
-                if(memcmp((*itor)->eth_dst, packetInfo.eth_dst, ETH_ALEN))
-                {
-                    printf("1\n");
-                        continue;
-                }
-                if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
-                  {printf("2\n");
-                       continue;              
-                  }
- 
-                //내 IP가 목적지인 경우 넘기지 않음
-                if((*itor)->ip_dst == packetInfo.ip_dst)
-                {   
-                    printf("same ip %x %x\n",(*itor)->ip_dst,  packetInfo.ip_dst);
-                     continue;}
-                
-                return (*itor); 
-            }
+        case (uint32_t)SUBTYPE::REACTSENDERREQUEST :
+            
+            printf("sender request \n");
+
+            if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
+              { 
+                  printf("1\n");
+                   continue;}
+            if(memcmp((*itor)->arp_sender, packetInfo.arp_sender, ETH_ALEN))
+             {   
+                 printf("2\n");
+                 continue;}
+            if((*itor)->arp_senderIP != packetInfo.arp_senderIP)
+             {   
+                 printf("3\n");
+                 continue;}
+
+            if((*itor)->arp_targetIP != packetInfo.arp_targetIP)
+             {   
+                 printf("4\n");
+                 continue;}
+
+            return (*itor);    
+            
+        case (uint32_t)SUBTYPE::REACTTARGETREQUEST :
+            
+            printf("--target request\n");
+            
+            if(memcmp((*itor)->eth_src, packetInfo.eth_src, ETH_ALEN))
+            { 
+                  printf("1\n");
+                   continue;}
+            if(memcmp((*itor)->arp_sender, packetInfo.arp_sender, ETH_ALEN))
+             {   
+                 printf("2\n");
+                 continue;}
+            if((*itor)->arp_senderIP != packetInfo.arp_senderIP)
+             {   
+                 printf("3\n");
+                 continue;}
+
+            return (*itor);    
+
+
         }
 
         
@@ -250,7 +319,9 @@ Subscriber * PcapManager::FindSubscriber(const uint8_t * packet)
 
 void PcapManager::AddSubscriber(Subscriber * sub)
 {
+   // unique_lock<mutex> subMutexLock(subMutex);
     subscriber.push_back(sub);
+    //subMutexLock.unlock();
 }
 
 

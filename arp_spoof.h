@@ -9,7 +9,9 @@ class Attack
 
 public:
     SendARP * sendArp;
-    uint32_t subID;
+    uint32_t relaySubId;
+    uint32_t requestSubId1;
+    uint32_t requestSubId2;
 
     Attack(uint8_t * interface, uint32_t senderIP, uint32_t targetIP, PcapManager *pcapManager);
 
@@ -31,9 +33,9 @@ private:
 public:
 
     void AddAttackList(uint32_t senderIP, uint32_t targetIP);
-    void RelayIPPacket(const uint8_t * buf, uint32_t len, uint8_t subID);
+    void RelayIPPacket(const uint8_t * buf, uint32_t len, uint32_t subID);
     void AttackStart();
-    void ReactRequest();
+    void ReactRequest(uint32_t subID);
     ARPSpoof(uint8_t * interface, uint32_t attackNum);
     void MaintainInfection(SendARP * sendARP);
 
